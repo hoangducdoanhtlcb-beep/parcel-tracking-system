@@ -1,19 +1,28 @@
+using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
 using TrackingService.Contracts;
 using TrackingService.Data;
 using TrackingService.Messaging;
 using TrackingService.Models;
 
+
 var builder = WebApplication.CreateBuilder(args);
 
 var connString = builder.Configuration.GetConnectionString("Postgres")
     ?? "Host=localhost;Port=5432;Database=tracking_db;Username=user;Password=password";
+    
 
 builder.Services.AddDbContext<TrackingDbContext>(opt => opt.UseNpgsql(connString));
+
+
 
 var mqHost = builder.Configuration["RabbitMq:Host"] ?? "localhost";
 var mqUser = builder.Configuration["RabbitMq:User"] ?? "guest";
 var mqPass = builder.Configuration["RabbitMq:Password"] ?? "guest";
+builder.Services.ConfigureHttpJsonOptions(options =>
+{
+    options.SerializerOptions.Converters.Add(new JsonStringEnumConverter());
+});
 
 builder.Services.AddSingleton<IEventPublisher>(_ =>
     RabbitMqEventPublisher.CreateAsync(mqHost, mqUser, mqPass).GetAwaiter().GetResult());
@@ -23,7 +32,7 @@ var app = builder.Build();
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<TrackingDbContext>();
-    db.Database.EnsureCreated();
+    db.Database.Migrate();
 }
 
 // POST /shipments
@@ -124,6 +133,16 @@ app.MapPost("/shipments/{trackingCode}/events", async (
     var shipment = await db.Shipments.FirstOrDefaultAsync(s => s.TrackingCode == trackingCode, ct);
     if (shipment is null)
         return Results.NotFound(new { message = "Không tìm thấy bưu gửi", trackingCode });
+
+    if (!ShipmentStateMachine.CanTransition(shipment.Status, req.Status))
+    {
+        return Results.BadRequest(new
+        {
+            message = $"Không thể chuyển trạng thái từ '{shipment.Status}' sang '{req.Status}'.",
+            currentStatus = shipment.Status,
+            allowedNextStatuses = ShipmentStateMachine.GetAllowedTransitionsText(shipment.Status)
+        });
+    }
 
     var previousStatus = shipment.Status;
     var now = DateTime.UtcNow;

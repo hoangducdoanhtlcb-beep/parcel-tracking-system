@@ -1,0 +1,35 @@
+@trackingUrl = http://localhost:5066
+@notifyUrl = http://localhost:5229
+
+### 1. Tạo bưu gửi mới
+POST {{trackingUrl}}/shipments
+Content-Type: application/json
+
+{
+  "sender": "Hoàng Đức Doanh",
+  "receiver": "Nguyễn Minh Anh",
+  "location": "Thái Nguyên"
+}
+
+### 2. Chuyển trạng thái hợp lệ: InTransit -> AtHub
+POST {{trackingUrl}}/shipments/TRK-20261127-C7B449/events
+Content-Type: application/json
+
+{
+  "status": "AtHub",
+  "location": "Kho trung chuyển Thái Nguyên",
+  "note": "Đã tới kho trung chuyển"
+}
+
+### 3. Chuyển trạng thái không hợp lệ: InTransit -> Created (kỳ vọng 400 Bad Request)
+POST {{trackingUrl}}/shipments/TRK-20261127-A2D073/events
+Content-Type: application/json
+
+{
+  "status": "Created",
+  "location": "Thái Nguyên",
+  "note": "Test chặn sai trạng thái"
+}
+
+### 4. Xem thông báo nhận được ở NotificationService
+GET {{notifyUrl}}/notifications
